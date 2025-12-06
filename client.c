@@ -13,7 +13,17 @@
 #include <stdint.h>
 
 // typedef enum MessageType { ... } message_type_t;
+
+
 // typedef struct __attribute__((packed)) Message { ... } message_t;
+typedef struct __attribute__((packed)) Message { 
+	unsigned int message_type;
+	unsigned int timestamp;
+	char username[32];
+	char message[32];
+} message_t;
+
+
 typedef struct Settings {
     struct sockaddr_in server;
     bool quiet;
@@ -64,46 +74,46 @@ int process_args(int argc, char *argv[], settings_t* settings) {
 		} else if (strncmp(arg, "--port", 6) == 0) { // checks if the port flag was passed 
 			i++; // moves to the next argument which should have the port value
 			if (i == argc) { // checks if no port was provided
-				print_error("Missing argument after --port\n");
+				print_error("Missing argument after --port");
 				return -1;
 			}
 			int port = atoi(argv[i]); // converts the string port value to an int
 			if (port == 0 || port < 1024 || port > 65535) { 
 				// checks if the ascii to integer conversion failed or if its inaccessible
-				print_error("Invalid port\n"); 
+				print_error("Invalid port"); 
 				return -1;
 			}
 			settings->server.sin_port = htons(port); // stores the port value in network byte order
 		} else if (strncmp(arg, "--ip", 4) == 0) { // checks if the ip flag was passed
 			if (double_ip_input) { // checks if an domain name was already passed
-				print_error("Cannot specify both IP address and domain name\n");
+				print_error("Cannot specify both IP address and domain name");
 				return -1;
 			}
 			double_ip_input = true; // specifies an ip address has already been inputted
 			i++; // moves to the next argument which should have the ip address
 			if (i == argc) { // checks if no ip address was provided
-				print_error("Missing argument after --ip\n");
+				print_error("Missing argument after --ip");
 				return -1; 
 			}
 			if (inet_pton(AF_INET, argv[i], &settings->server.sin_addr) < 1) { // sets the ip address in settings
 				// checks for errors
-				print_error("Invalid IP address\n");
+				print_error("Invalid IP address");
 				return -1;
 			}
 		} else if (strncmp(arg, "--domain", 8) == 0) { // checks if the domain flag was passed
 			if (double_ip_input) { // checks if an ip address was already passed
-				print_error("Cannot specify both IP address and domain name\n"); 
+				print_error("Cannot specify both IP address and domain name"); 
 				return -1; 
 			}
 			double_ip_input = true; // specifies an domain name has already been inputted
 			i++; // moves to the next argument which should have the domain name
 			if (i == argc) { // checks if no ip address was provided
-				print_error("Missing argument after --domain\n"); 
+				print_error("Missing argument after --domain"); 
 				return -1; 
 			}
 			struct hostent* host_info = gethostbyname(argv[i]); // gets the ip address and host info from a domain
 			if (host_info == NULL) { 
-				print_error("Could not resolve domain\n"); 
+				print_error("Could not resolve domain"); 
 				return -1;
 			}
 			if (host_info->h_addrtype == AF_INET) { // checks for IPv4 address
@@ -112,7 +122,7 @@ int process_args(int argc, char *argv[], settings_t* settings) {
 		} else if (strncmp(arg, "--quiet", 7) == 0) { // checks if the quiet flag was passed
 			settings->quiet = true; // sets the quiet setting to true
 		} else { 
-			print_error("Invalid argument\n");
+			print_error("Invalid argument");
 			return -1;
 		}
 	}
@@ -124,11 +134,11 @@ int get_username(settings_t* settings) {
 	// returns -1 on success and 0 on failure
 	FILE* fp = popen("whoami", "r"); // runs the command whoami and reads from stdin
 	if (fp == NULL) { // checks if popen failed
-		print_error("popen failed\n");
+		print_error("popen failed");
 		return -1;
 	}
 	if (fgets(settings->username, sizeof(settings->username), fp) == NULL) { // stores username in settings and checks for failire
-		print_error("Failed to get username\n");
+		print_error("Failed to get username");
 		return -1;
 	}
 	pclose(fp); // closes the file
@@ -144,13 +154,13 @@ ssize_t perform_full_read(void *buf, size_t n) {
 }
 
 void* receive_messages_thread(void* arg) {
-    // while some condition(s) are true
-        // read message from the server (ensure no short reads)
-        // check the message type
-            // for message types, print the message and do highlight parsing (if not quiet)
-            // for system types, print the message in gray with username SYSTEM
-            // for disconnect types, print the reason in red with username DISCONNECT and exit
-            // for anything else, print an error
+	// while some condition(s) are true
+		// read message from the server (ensure no short reads)
+		// check the message type
+			// for message types, print the message and do highlight parsing (if not quiet)
+			// for system types, print the message in gray with username SYSTEM
+			// for disconnect types, print the reason in red with username DISCONNECT and exit
+			// for anything else, print an error
 }
 
 int main(int argc, char *argv[]) {
@@ -178,12 +188,11 @@ int main(int argc, char *argv[]) {
 	}
 
 	// create socket
-	int socket_fd = socket(AF_INET, SOCK_STREAM, 0); // creates a IPv4 socket using default TCP/Stream Protocol'
-	if (socket_fd == -1) { // checks if creating the socket failed
+	settings.socket_fd = socket(AF_INET, SOCK_STREAM, 0); // creates a IPv4 socket using default TCP/Stream Protocol'
+	if (settings.socket_fd == -1) { // checks if creating the socket failed
 		print_error("Failure to create the socket");
 		return -1;
 	}	
-	settings.socket_fd = socket_fd; // updates the settings with the new socket_fd
 
 	// connect to server
 	if (connect(settings.socket_fd, (const struct sockaddr*)&settings.server, sizeof(settings.server)) == -1) {
@@ -191,7 +200,24 @@ int main(int argc, char *argv[]) {
 		print_error(strerror(errno));
 	}
 
-	// create and send login message
+	// creates the login message
+	message_t login_message = {
+		.message_type = 0, // Type 0 LOGIN [OUTBOUND]
+	};
+	// sets the username of the message to current username from settings 
+	if (strncpy(login_message.username, settings.username, 32) == NULL) { // checks if strncpy failed
+		print_error("Failed to copy username from setings"); 
+		return -1; 
+	}
+	login_message.message_type = htons(login_message.message_type); // converts the message type to network byte order
+
+	// sends the login message
+	if (write(settings.socket_fd, &login_message, sizeof(login_message)) <= 0) { // checks if the message failed to send
+		print_error("Failed to write to server");
+		print_error(strerror(errno)); 
+		close(settings.socket_fd); // closes the socket
+		return -1;
+	}
 
 	// create and start receive messages thread
 
