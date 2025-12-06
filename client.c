@@ -120,11 +120,23 @@ int process_args(int argc, char *argv[], settings_t* settings) {
 			return -1;
 		}
 	}
-				
+	return 0;				
 }
 
-int get_username() {
-    return -1;
+int get_username(settings_t* settings) {
+	// retrieves the username of the current user to login into mycord with
+	// returns -1 on success and 0 on failure
+	FILE* fp = popen("whoami", "r"); // runs the command whoami and reads from stdin
+	if (fp == NULL) { // checks if popen failed
+		print_error("popen failed\n");
+		return -1;
+	}
+	if (fgets(settings->username, sizeof(settings->username), fp) == NULL) { // stores username in settings and checks for failire
+		print_error("Failed to get username\n");
+		return -1;
+	}
+	pclose(fp); // closes the file
+	return 0;
 }
 
 void handle_signal(int signal) {
