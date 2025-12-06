@@ -46,8 +46,81 @@ void print_help() {
   );
 }
 
-int process_args(int argc, char *argv[]) {
-    return -1;
+void print_error(const char* error_message) {
+	// print an error to stderr
+	fprintf(stderr, "Error: %s\n", error_message);
+}
+
+int process_args(int argc, char *argv[], settings_t* settings) {
+	// parses the CLI arguments provided
+	// returns 0 on success and -1 on failure
+	settings->server.sin_family = AF_INET; // sets the address family to IPv4
+	settings->server.sin_port = htons(8080); // defaults the port to 8080 in network byte order
+       	inet_pton(AF_INET, "127.0.0.1", &settings->server.sin_addr); // defaults ip address to 127.0.0.1"
+	bool double_ip_input = false; // used to check if a domain and an ip address are inputted
+	settings->quiet = false; // defaults quiet to false
+
+	for (int i = 1; i<argc; i++) { // loops through each cli argument
+		char* arg = argv[i]; // pointer to the current argument
+		if (strncmp(arg, "--help", 6) == 0 || strncmp(arg, "-h", 2) == 0) { // checks if the help flag was passed
+			print_help();
+			return 0;
+		} else if (strncmp(arg, "--port", 6) == 0) { // checks if the port flag was passed 
+			i++; // moves to the next argument which should have the port value
+			if (i == argc) { // checks if no port was provided
+				print_error("Missing argument after --port\n");
+				return -1;
+			}
+			int port = atoi(argv[i]); // converts the string port value to an int
+			if (port == 0 || port < 1024 || port > 65535) { 
+				// checks if the ascii to integer conversion failed or if its inaccessible
+				print_error("Invalid port\n"); 
+				return -1;
+			}
+			settings->server.sin_port = htons(port); // stores the port value in network byte order
+		} else if (strncmp(arg, "--ip", 4) == 0) { // checks if the ip flag was passed
+			if (double_ip_input) { // checks if an domain name was already passed
+				print_error("Cannot specify both IP address and domain name\n");
+				return -1;
+			}
+			double_ip_input = true; // specifies an ip address has already been inputted
+			i++; // moves to the next argument which should have the ip address
+			if (i == argc) { // checks if no ip address was provided
+				print_error("Missing argument after --ip\n");
+				return -1; 
+			}
+			if (inet_pton(AF_INET, argv[i], &settings->server.sin_addr) < 1) { // sets the ip address in settings
+				// checks for errors
+				print_error("Invalid IP address\n");
+				return -1;
+			}
+		} else if (strncmp(arg, "--domain", 8) == 0) { // checks if the domain flag was passed
+			if (double_ip_input) { // checks if an ip address was already passed
+				print_error("Cannot specify both IP address and domain name\n"); 
+				return -1; 
+			}
+			double_ip_input = true; // specifies an domain name has already been inputted
+			i++; // moves to the next argument which should have the domain name
+			if (i == argc) { // checks if no ip address was provided
+				print_error("Missing argument after --domain\n"); 
+				return -1; 
+			}
+			struct hostent* host_info = gethostbyname(argv[i]); // gets the ip address and host info from a domain
+			if (host_info == NULL) { 
+				print_error("Could not resolve domain\n"); 
+				return -1;
+			}
+			if (host_info->h_addrtype == AF_INET) { // checks for IPv4 address
+				memcpy(&settings->server.sin_addr, host_info->h_addr_list[0], host_info->h_length);
+			}
+		} else if (strncmp(arg, "--quiet", 7) == 0) { // checks if the quiet flag was passed
+			settings->quiet = true; // sets the quiet setting to true
+		} else { 
+			print_error("Invalid argument\n");
+			return -1;
+		}
+	}
+				
 }
 
 int get_username() {
