@@ -54,11 +54,7 @@ void print_error(const char* error_message) {
 int process_args(int argc, char *argv[], settings_t* settings) {
 	// parses the CLI arguments provided
 	// returns 0 on success and -1 on failure
-	settings->server.sin_family = AF_INET; // sets the address family to IPv4
-	settings->server.sin_port = htons(8080); // defaults the port to 8080 in network byte order
-       	inet_pton(AF_INET, "127.0.0.1", &settings->server.sin_addr); // defaults ip address to 127.0.0.1"
 	bool double_ip_input = false; // used to check if a domain and an ip address are inputted
-	settings->quiet = false; // defaults quiet to false
 
 	for (int i = 1; i<argc; i++) { // loops through each cli argument
 		char* arg = argv[i]; // pointer to the current argument
@@ -158,27 +154,52 @@ void* receive_messages_thread(void* arg) {
 }
 
 int main(int argc, char *argv[]) {
-    // setup sigactions (ill-advised to use signal for this project, use sigaction with default (0) flags instead)
+	// setup sigactions (ill-advised to use signal for this project, use sigaction with default (0) flags instead)
 
-    // parse arguments
 
-    // get username
+	// set up default settings
+	settings_t settings = {
+		.server.sin_family = AF_INET, // defaults address family to IPv4
+		.server.sin_port = htons(8080), // defaults port to 8080 in network byte order
+		.quiet = false, // defaults quiet to false
+		.socket_fd = -1, // defaults the socket to -1
+		.running = false // defaults running to false
+	};
+	inet_pton(AF_INET, "127.0.0.1", &settings.server.sin_addr); // defaults ip address to 127.0.0.1
 
-    // create socket
+	// parse arguments
+	if (process_args(argc, argv, &settings) == -1) { // checks if processing arguments failed  
+		return -1;
+	}
 
-    // connect to server
+	// get username
+	if (get_username(&settings) == -1) { // checks if get_username failed
+		return -1;
+	}
 
-    // create and send login message
+	// create socket
+	int socket_fd = socket(AF_INET, SOCK_STREAM, 0); // creates a IPv4 socket using default TCP/Stream Protocol'
+	if (socket_fd == -1) { // checks if creating the socket failed
+		print_error("Failure to create the socket");
+		return -1;
+	}	
+	settings.socket_fd = socket_fd; // updates the settings with the new socket_fd
 
-    // create and start receive messages thread
+	// connect to server
+	if (connect(settings.socket_fd, (const struct sockaddr*)&settings.server, sizeof(settings.server)) == -1) {
+		// checks if connecting to the server failed
+		print_error(strerror(errno));
+	}
 
-    // while some condition(s) are true
-        // read a line from STDIN
-        // do some error checking (handle EOF, EINTR, etc.)
-        // send message to the server
-    
-    // wait for the thread / clean up
+	// create and send login message
 
-    // cleanup and return
-    print_help();
+	// create and start receive messages thread
+
+	// while some condition(s) are true
+		// read a line from STDIN
+		// do some error checking (handle EOF, EINTR, etc.)
+		// send message to the server
+	// wait for the thread / clean up
+
+	// cleanup and return
 }
