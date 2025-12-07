@@ -156,15 +156,18 @@ void handle_signal(int signal) {
     return;
 }
 
-ssize_t perform_full_read(char* buf, size_t n, settings_t* settings) {
+ssize_t perform_full_read(void* buf, size_t n, int socket_fd) {
 	size_t total_read = 0; // stores total elements read 
 
 	while (total_read < n) { 
-		ssize_t bytes_read = read(settings->socket_fd, buf+total_read, n-total_read); // read from socket
+		ssize_t bytes_read = read(socket_fd, (char*)buf+total_read, n-total_read); // read from socket
 		if (bytes_read == -1) { // checks if read failed
 			print_error(strerror(errno));
 			return -1;
 		} 
+		if (bytes_read == 0) { // not reading anymore
+			return total_read;
+		}
 		total_read+=bytes_read; // increases total read
 	}
 	return total_read;
@@ -173,14 +176,60 @@ ssize_t perform_full_read(char* buf, size_t n, settings_t* settings) {
 void* receive_messages_thread(void* arg) {
 	// worker thread to receive messages from the server
 	// while some condition(s) are true
-	while (settings.running) { // does work as long as the client is connected to the server
+	settings_t* settings = (settings_t*) arg; // casts the settings from the argument
+	if (settings == NULL) { // checks if arg is null
+	       print_error("Failed to pass settings to worker");
+	       pthread_exit((void*)-1);
+    	}	       
+
+	while (settings->running) { // does work as long as the client is connected to the server
+		message_t message; // new message struct
+
 		// read message from the server (ensure no short reads)
+		ssize_t size = perform_full_read(&message, sizeof(message_t), settings->socket_fd); 
+
+		if (size != sizeof(message_t)) { // checks for an incomplete read
+			print_error("Failed to read message from server");
+			pthread_exit((void*)-1);
+		}
 
 		// check the message type
-			// for message types, print the message and do highlight parsing (if not quiet)
-			// for system types, print the message in gray with username SYSTEM
-			// for disconnect types, print the reason in red with username DISCONNECT and exit
-			// for anything else, print an error
+		if (message.message_type == MESSAGE_RECV) { // checks if the message from the server is MESSAGE_RECV type
+			// convert the timestamp to a printable time
+			time_t t = (time_t) message.timestamp; 
+			struct tm *time = localtime(&t);
+			char time_str[64]; 
+			strftime(time_str, sizeof(time_str), "%Y-%m-%d %H:%M:%S", time); 
+			
+			if (settings->quiet) { // checks if the quiet parameter was specified
+				printf("[%s] %s: %s\n", time_str, message.username, message.message);
+			} else {
+				char compare[34] = "@"; // used to check for the mention
+				strncat(compare, message.username, 33); // concats "@" and the persons username together
+				size_t length = strnlen(message.message, 1024); // length of the message
+				size_t username_length = strnlen(compare, 33); // length of the username plus the @ symbol
+
+				for (size_t i = 0; i<length; ) { 
+					if (i+username_length <= length && strncmp(&(message.message[i]), compare, username_length) == 0) { 
+						// checks if current position plus username_length is still in bounds
+						// compares the current string and the username to see if they match
+						printf("%s%s%s", COLOR_RED, compare, COLOR_RESET); // prints the highlighted username to stdout
+						i+=username_length; // increments i by username length
+					} else { 
+						printf("%c", message.message[i]); // prints the current character to stdout
+						i++;
+					}
+				}
+				printf("\n"); // adds a new line
+			}
+		} else if (message.message_type == DISCONNECT) { // checks if the message from the server is DISCONNECT type
+			printf("%s[DISCONNECT] %s%s", COLOR_RED, message.message, COLOR_RESET); // prints the disconnect message to stdout
+		} else if (message.message_type == SYSTEM) { // checks if the message from the server is SYSTEM type
+			printf("%s[SYSTEM] %s%s", COLOR_GRAY, message.message, COLOR_RESET); // prints the disconnect message to stdout
+		} else { // invalid inbound message
+			print_error("Invalid inbound message from server"); 
+			pthread_exit((void*)-1);
+		}
 	}
 	return NULL; 
 }
@@ -190,62 +239,65 @@ int main(int argc, char *argv[]) {
 
 
 	// set up default settings
-	settings_t settings = {
-		.server.sin_family = AF_INET, // defaults address family to IPv4
-		.server.sin_port = htons(8080), // defaults port to 8080 in network byte order
-		.quiet = false, // defaults quiet to false
-		.socket_fd = -1, // defaults the socket to -1
-		.running = false // defaults running to false
-	};
-	inet_pton(AF_INET, "127.0.0.1", &settings.server.sin_addr); // defaults ip address to 127.0.0.1
+	settings_t* settings = (settings_t*)malloc(sizeof(settings_t));	// allocates the memory for settings
+	settings->server.sin_family = AF_INET; // defaults address family to IPv4
+	settings->server.sin_port = htons(8080); // defaults port to 8080 in network byte order
+	settings->quiet = false; // defaults quiet to false
+	settings->socket_fd = -1; // defaults the socket to -1
+	settings->running = false; // defaults running to false
+	inet_pton(AF_INET, "127.0.0.1", &(settings->server.sin_addr)); // defaults ip address to 127.0.0.1
 
 	// parse arguments
-	if (process_args(argc, argv, &settings) == -1) { // checks if processing arguments failed  
+	if (process_args(argc, argv, settings) == -1) { // checks if processing arguments failed  
 		return -1;
 	}
 
 	// get username
-	if (get_username(&settings) == -1) { // checks if get_username failed
+	if (get_username(settings) == -1) { // checks if get_username failed
 		return -1;
 	}
 
 	// create socket
-	settings.socket_fd = socket(AF_INET, SOCK_STREAM, 0); // creates a IPv4 socket using default TCP/Stream Protocol'
-	if (settings.socket_fd == -1) { // checks if creating the socket failed
+	settings->socket_fd = socket(AF_INET, SOCK_STREAM, 0); // creates a IPv4 socket using default TCP/Stream Protocol'
+	if (settings->socket_fd == -1) { // checks if creating the socket failed
 		print_error("Failure to create the socket");
 		return -1;
 	}	
 
 	// connect to server
-	if (connect(settings.socket_fd, (const struct sockaddr*)&settings.server, sizeof(settings.server)) == -1) {
+	if (connect(settings->socket_fd, (const struct sockaddr*)&(settings->server), sizeof(settings->server)) == -1) {
 		// checks if connecting to the server failed
 		print_error(strerror(errno));
 	}
-	settings.running = true; // sets running to true after connecting to the server
+	settings->running = true; // sets running to true after connecting to the server
 
 	// creates the login message
 	message_t login_message = {
 		.message_type = LOGIN, // Type 0 LOGIN [OUTBOUND]
 	};
 	// sets the username of the message to current username from settings 
-	if (strncpy(login_message.username, settings.username, 32) == NULL) { // checks if strncpy failed
+	if (strncpy(login_message.username, settings->username, 32) == NULL) { // checks if strncpy failed
 		print_error("Failed to copy username from setings"); 
 		return -1; 
 	}
 	login_message.message_type = htons(login_message.message_type); // converts the message type to network byte order
 
 	// sends the login message
-	if (write(settings.socket_fd, &login_message, sizeof(login_message)) <= 0) { // checks if the message failed to send
+	if (write(settings->socket_fd, &login_message, sizeof(login_message)) <= 0) { // checks if the message failed to send
 		print_error("Failed to write to server");
 		print_error(strerror(errno)); 
-		close(settings.socket_fd); // closes the socket
+		close(settings->socket_fd); // closes the socket
 		return -1;
 	}
 
 	// create and start receive messages thread
+	void* status; // stores the status of the exited thread
 	pthread_t receive_messages; // declare a new thread
-	pthread_create(&receive_messages, NULL, receive_messages_thread, NULL); 
-
+	pthread_create(&receive_messages, NULL, receive_messages_thread, settings); // creates a worker thread 
+	pthread_join(receive_messages, &status); // waits for the thread to exit 
+	if (status != NULL) { // checks if there was a failure in the worker thread
+		return -1; 
+	}
 
 
 	// while some condition(s) are true
@@ -255,4 +307,5 @@ int main(int argc, char *argv[]) {
 	// wait for the thread / clean up
 
 	// cleanup and return
+	free(settings); // frees the memory allocated for settings
 }
