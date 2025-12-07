@@ -44,6 +44,7 @@ static char* COLOR_GRAY = "\033[90m";
 static char* COLOR_RESET = "\033[0m";
 static settings_t settings = {0}; 
 
+
 void print_help() { 
 	// this function prints the help function out to stdout when called by the main function
 	fprintf(stdout, "usage: ./client [-h] [--port PORT] [--ip IP] [--domain DOMAIN] [--quiet]\n\n"
@@ -222,6 +223,9 @@ void* receive_messages_thread(void* arg) {
 		ssize_t size = perform_full_read(&message, sizeof(message_t), settings->socket_fd); 
 
 		if (size != sizeof(message_t)) { // checks for an incomplete read
+			if (!settings->running) { // checks to see if the server is shut down
+				break;
+			}
 			print_error("Failed to read message from server");
 			pthread_exit((void*)-1);
 		}
@@ -241,6 +245,7 @@ void* receive_messages_thread(void* arg) {
 			if (settings->quiet) { // checks if the quiet parameter was specified
 				printf("[%s] %s: %s\n", time_str, message.username, message.message);
 			} else {
+                                printf("[%s] %s: ", time_str, message.username);
 				char compare[34] = "@"; // used to check for the mention
 				strncat(compare, settings->username, 33); // concats "@" and the persons username together
 				size_t length = strnlen(message.message, 1024); // length of the message
@@ -366,6 +371,7 @@ int main(int argc, char *argv[]) {
 		size_t len = strnlen(input_buffer, sizeof(input_buffer));
 		if (len > 0 && input_buffer[len-1] == '\n') { // checks for new line character
 			input_buffer[len-1] = '\0'; // replaces new line with null terminator
+			len--; // updates the length 
 		}
 
 		if (input_buffer[0] == '\0') { // checks for empty messages
@@ -376,16 +382,22 @@ int main(int argc, char *argv[]) {
 			print_error("Message must be between 1 amnd 1023 characters");
 			continue; // skips invalid message 
 		}
-			
+
+		bool valid = true;
 		for (size_t i = 0; i<len; i++) { // loops through the inputted string
 			if (input_buffer[i] == '\n') { // checks for a new line character in the middle of the input
 				print_error("Message cannot contain newlines");
-				continue; // skips invalid message
+				valid = false;
+				break; // skips checking the rest of the message
 			}
 			if (!isprint((unsigned char)input_buffer[i])) { // checks if the character is printable
 				print_error("Message must contain printable characters only");
-				continue; // skips invalid message
+				valid = false;
+				break; // skips checking the rest of the message
 			}
+		}
+		if (!valid) { // checks if the message wasn't valid
+			continue; // skips the invalid message 
 		}
 
 		message_t outbound_message = {0}; // creates a new message
