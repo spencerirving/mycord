@@ -77,7 +77,7 @@ int process_args(int argc, char *argv[], settings_t* settings) {
 		char* arg = argv[i]; // pointer to the current argument
 		if (strncmp(arg, "--help", 6) == 0 || strncmp(arg, "-h", 2) == 0) { // checks if the help flag was passed
 			print_help();
-			return 0;
+			exit(0);
 		} else if (strncmp(arg, "--port", 6) == 0) { // checks if the port flag was passed 
 			i++; // moves to the next argument which should have the port value
 			if (i == argc) { // checks if no port was provided
@@ -328,6 +328,8 @@ int main(int argc, char *argv[]) {
 	if (connect(settings.socket_fd, (const struct sockaddr*)&(settings.server), sizeof(settings.server)) == -1) {
 		// checks if connecting to the server failed
 		print_error(strerror(errno));
+		close(settings.socket_fd);
+		return -1; 
 	}
 	settings.running = true; // sets running to true after connecting to the server
 
@@ -336,12 +338,13 @@ int main(int argc, char *argv[]) {
 		.message_type = LOGIN, // Type 0 LOGIN [OUTBOUND]
 	};
 	// sets the username of the message to current username from settings 
-	if (strncpy(login_message.username, settings.username, 32) == NULL) { // checks if strncpy failed
+	if (strncpy(login_message.username, settings.username, 31) == NULL) { // checks if strncpy failed
 		print_error("Failed to copy username from setings"); 
 		close(settings.socket_fd);
 		return -1; 
 	}
-	login_message.message_type = htons(login_message.message_type); // converts the message type to network byte order
+	login_message.username[31] = '\0';
+	login_message.message_type = htonl(login_message.message_type); // converts the message type to network byte order
 
 	// sends the login message
 	if (write(settings.socket_fd, &login_message, sizeof(login_message)) <= 0) { // checks if the message failed to send
