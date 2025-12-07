@@ -271,6 +271,8 @@ void* receive_messages_thread(void* arg) {
 			}
 		} else if (message.message_type == DISCONNECT) { // checks if the message from the server is DISCONNECT type
 			printf("%s[DISCONNECT] %s%s\n", COLOR_RED, message.message, COLOR_RESET); // prints the disconnect message to stdout
+			settings->running = false; // stops reading
+			break;
 		} else if (message.message_type == SYSTEM) { // checks if the message from the server is SYSTEM type
 			printf("%s[SYSTEM] %s%s\n", COLOR_GRAY, message.message, COLOR_RESET); // prints the disconnect message to stdout
 		} else { // invalid inbound message
@@ -366,16 +368,15 @@ int main(int argc, char *argv[]) {
 		if (fgets(input_buffer, sizeof(input_buffer), stdin) == NULL) { // checks for failure or EOF
 			break;
 		}
+		if (!settings.running) { // checks if disconnected
+			break;
+		}
 		
 		// get rid of newline character
 		size_t len = strnlen(input_buffer, sizeof(input_buffer));
 		if (len > 0 && input_buffer[len-1] == '\n') { // checks for new line character
 			input_buffer[len-1] = '\0'; // replaces new line with null terminator
 			len--; // updates the length 
-		}
-
-		if (input_buffer[0] == '\0') { // checks for empty messages
-			continue; // skips the empty message
 		}
 
 		if (len < 1 || len > 1023) { // checks for invalid size
@@ -414,13 +415,16 @@ int main(int argc, char *argv[]) {
 	}	 
   	settings.running = false; // EOF or error
 	
-	message_t logout_message = {0}; // creates a logout message
-	logout_message.message_type = htonl(LOGOUT); // sets message type to LOGOT in network byte order
-	if (perform_full_write(&logout_message, sizeof(logout_message), settings.socket_fd) != sizeof(logout_message)) { 
-		// checks if full write failed
-		print_error("Failed to send logout message to server");
-		close(settings.socket_fd);
-		return -1; 
+	if (settings.socket_fd != -1) { // checks to make sure the socket is still open
+		
+		message_t logout_message = {0}; // creates a logout message
+		logout_message.message_type = htonl(LOGOUT); // sets message type to LOGOT in network byte order
+		if (perform_full_write(&logout_message, sizeof(logout_message), settings.socket_fd) != sizeof(logout_message)) { 
+			// checks if full write failed
+			print_error("Failed to send logout message to server");
+			close(settings.socket_fd);
+			return -1; 
+		}
 	}
 
 	// while some condition(s) are true
@@ -430,7 +434,7 @@ int main(int argc, char *argv[]) {
 	// wait for the thread / clean up
 
 	pthread_join(receive_messages, &status); // waits for the thread to exit
-
+	
 	if (status != NULL) { // checks for failure in worker thread
 		close(settings.socket_fd);
 		return -1;
