@@ -13,7 +13,14 @@
 #include <stdint.h>
 
 // typedef enum MessageType { ... } message_type_t;
-
+enum MessageType { 
+	LOGIN = 0,
+	LOGOUT = 1,
+	MESSAGE_SEND = 2,
+	MESSAGE_RECV = 10,
+	DISCONNECT = 12,
+	SYSTEM = 13
+} message_type_t;
 
 // typedef struct __attribute__((packed)) Message { ... } message_t;
 typedef struct __attribute__((packed)) Message { 
@@ -149,18 +156,33 @@ void handle_signal(int signal) {
     return;
 }
 
-ssize_t perform_full_read(void *buf, size_t n) {
-    return -1;
+ssize_t perform_full_read(char* buf, size_t n, settings_t* settings) {
+	size_t total_read = 0; // stores total elements read 
+
+	while (total_read < n) { 
+		ssize_t bytes_read = read(settings->socket_fd, buf+total_read, n-total_read); // read from socket
+		if (bytes_read == -1) { // checks if read failed
+			print_error(strerror(errno));
+			return -1;
+		} 
+		total_read+=bytes_read; // increases total read
+	}
+	return total_read;
 }
 
 void* receive_messages_thread(void* arg) {
+	// worker thread to receive messages from the server
 	// while some condition(s) are true
+	while (settings.running) { // does work as long as the client is connected to the server
 		// read message from the server (ensure no short reads)
+
 		// check the message type
 			// for message types, print the message and do highlight parsing (if not quiet)
 			// for system types, print the message in gray with username SYSTEM
 			// for disconnect types, print the reason in red with username DISCONNECT and exit
 			// for anything else, print an error
+	}
+	return NULL; 
 }
 
 int main(int argc, char *argv[]) {
@@ -199,10 +221,11 @@ int main(int argc, char *argv[]) {
 		// checks if connecting to the server failed
 		print_error(strerror(errno));
 	}
+	settings.running = true; // sets running to true after connecting to the server
 
 	// creates the login message
 	message_t login_message = {
-		.message_type = 0, // Type 0 LOGIN [OUTBOUND]
+		.message_type = LOGIN, // Type 0 LOGIN [OUTBOUND]
 	};
 	// sets the username of the message to current username from settings 
 	if (strncpy(login_message.username, settings.username, 32) == NULL) { // checks if strncpy failed
@@ -220,6 +243,10 @@ int main(int argc, char *argv[]) {
 	}
 
 	// create and start receive messages thread
+	pthread_t receive_messages; // declare a new thread
+	pthread_create(&receive_messages, NULL, receive_messages_thread, NULL); 
+
+
 
 	// while some condition(s) are true
 		// read a line from STDIN
