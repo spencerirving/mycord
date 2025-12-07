@@ -27,7 +27,7 @@ typedef struct __attribute__((packed)) Message {
 	unsigned int message_type;
 	unsigned int timestamp;
 	char username[32];
-	char message[32];
+	char message[1024];
 } message_t;
 
 
@@ -42,7 +42,6 @@ typedef struct Settings {
 static char* COLOR_RED = "\033[31m";
 static char* COLOR_GRAY = "\033[90m";
 static char* COLOR_RESET = "\033[0m";
-static settings_t settings = {0};
 
 
 void print_help() { 
@@ -149,6 +148,11 @@ int get_username(settings_t* settings) {
 		return -1;
 	}
 	pclose(fp); // closes the file
+	// remove the new line 
+	size_t len = strnlen(settings->username, sizeof(settings->username));
+	if (len > 0 && settings->username[len-1] == '\n') { // checks for a new line character 
+		settings->username[len-1] = '\0'; // replaces it with null terminator
+	}
 	return 0;
 }
 
@@ -156,12 +160,37 @@ void handle_signal(int signal) {
     return;
 }
 
+ssize_t perform_full_write(const void* buf, size_t n, int socket_fd) { 
+	// performs a full write to the server
+	size_t total_written = 0;
+
+	while (total_written < n) { 
+		ssize_t bytes_written = write(socket_fd, (const char*)buf+total_written, n-total_written); // writes to the socket
+		if (bytes_written == -1) { // checks if the write failed
+			if (errno == EINTR) { // signal interrupt 
+				continue;
+			}
+			print_error(strerror(errno)); 
+			return -1; 
+		}
+		if (bytes_written == 0) { // cant write anymore
+			return total_written; 
+		}
+		total_written += bytes_written; // increases total wrote
+	}
+	return total_written;
+}
+
 ssize_t perform_full_read(void* buf, size_t n, int socket_fd) {
+	// ensures a full read from the server
 	size_t total_read = 0; // stores total elements read 
 
 	while (total_read < n) { 
 		ssize_t bytes_read = read(socket_fd, (char*)buf+total_read, n-total_read); // read from socket
 		if (bytes_read == -1) { // checks if read failed
+			if (errno == EINTR) { // signal interrupt
+				continue;
+			}
 			print_error(strerror(errno));
 			return -1;
 		} 
@@ -192,6 +221,10 @@ void* receive_messages_thread(void* arg) {
 			print_error("Failed to read message from server");
 			pthread_exit((void*)-1);
 		}
+		
+		// convert from network to host byte order
+		message.message_type = ntohl(message.message_type); 
+		message.timestamp = ntohl(message.timestamp);
 
 		// check the message type
 		if (message.message_type == MESSAGE_RECV) { // checks if the message from the server is MESSAGE_RECV type
@@ -205,7 +238,7 @@ void* receive_messages_thread(void* arg) {
 				printf("[%s] %s: %s\n", time_str, message.username, message.message);
 			} else {
 				char compare[34] = "@"; // used to check for the mention
-				strncat(compare, message.username, 33); // concats "@" and the persons username together
+				strncat(compare, settings->username, 33); // concats "@" and the persons username together
 				size_t length = strnlen(message.message, 1024); // length of the message
 				size_t username_length = strnlen(compare, 33); // length of the username plus the @ symbol
 
@@ -249,18 +282,24 @@ int main(int argc, char *argv[]) {
 
 	// parse arguments
 	if (process_args(argc, argv, settings) == -1) { // checks if processing arguments failed  
+		close(settings->socket_fd);
+		free(settings);
 		return -1;
 	}
 
 	// get username
 	if (get_username(settings) == -1) { // checks if get_username failed
+                close(settings->socket_fd);
+		free(settings);
 		return -1;
 	}
 
 	// create socket
-	settings->socket_fd = socket(AF_INET, SOCK_STREAM, 0); // creates a IPv4 socket using default TCP/Stream Protocol'
+	settings->socket_fd = socket(AF_INET, SOCK_STREAM, 0); // creates a IPv4 socket using default TCP/Stream Protocol
 	if (settings->socket_fd == -1) { // checks if creating the socket failed
 		print_error("Failure to create the socket");
+                close(settings->socket_fd);
+		free(settings);
 		return -1;
 	}	
 
@@ -278,6 +317,8 @@ int main(int argc, char *argv[]) {
 	// sets the username of the message to current username from settings 
 	if (strncpy(login_message.username, settings->username, 32) == NULL) { // checks if strncpy failed
 		print_error("Failed to copy username from setings"); 
+		close(settings->socket_fd);
+		free(settings);
 		return -1; 
 	}
 	login_message.message_type = htons(login_message.message_type); // converts the message type to network byte order
@@ -287,17 +328,52 @@ int main(int argc, char *argv[]) {
 		print_error("Failed to write to server");
 		print_error(strerror(errno)); 
 		close(settings->socket_fd); // closes the socket
+		free(settings);
 		return -1;
 	}
 
 	// create and start receive messages thread
 	void* status; // stores the status of the exited thread
 	pthread_t receive_messages; // declare a new thread
-	pthread_create(&receive_messages, NULL, receive_messages_thread, settings); // creates a worker thread 
-	pthread_join(receive_messages, &status); // waits for the thread to exit 
-	if (status != NULL) { // checks if there was a failure in the worker thread
-		return -1; 
+
+	// creates a worker thread
+	if (pthread_create(&receive_messages, NULL, receive_messages_thread, settings) != 0) { // checks for failure
+		print_error("Failed to create recieve messages thread");
+		close(settings->socket_fd);
+		free(settings);
+		return -1;
 	}
+	
+	char input_buffer[1024];
+	while (settings->running) {
+		// reads a line from stdin
+		if (fgets(input_buffer, sizeof(input_buffer), stdin) == NULL) { // checks for failure or EOF
+			break;
+		}
+		
+		// get rid of newline character
+		size_t len = strnlen(input_buffer, sizeof(input_buffer));
+		if (len > 0 && input_buffer[len-1] == '\n') { // checks for new line character
+			input_buffer[len-1] = '\0'; // replaces new line with null terminator
+		}
+
+		if (input_buffer[0] == '\0') { // checks for empty messages
+			continue; // skips the empty message
+		}
+
+		message_t outbound_message = {0}; // creates a new message
+		outbound_message.message_type = htonl(MESSAGE_SEND); // sets message type to message_send in network byte order
+		strncpy(outbound_message.message, input_buffer, 1023); // copies the input buffer over
+		outbound_message.message[1023] = '\0'; // makes sure its null terminated
+
+		// sends the message to server
+		if (perform_full_write(&outbound_message, sizeof(outbound_message), settings->socket_fd) != sizeof(outbound_message)) {
+		       	// checks if the full write failed
+		      	print_error("Failed to write to server");
+			break;	       
+		}
+	}	 
+  	settings->running = false;	
 
 
 	// while some condition(s) are true
@@ -306,6 +382,16 @@ int main(int argc, char *argv[]) {
 		// send message to the server
 	// wait for the thread / clean up
 
+	pthread_join(receive_messages, &status); // waits for the thread to exit
+
+	if (status != NULL) { // checks for failure in worker thread
+		close(settings->socket_fd);
+		free(settings);
+		return -1;
+	}
+
 	// cleanup and return
+	close(settings->socket_fd); // closes the socket
 	free(settings); // frees the memory allocated for settings
+	
 }
