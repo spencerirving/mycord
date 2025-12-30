@@ -23,10 +23,15 @@ The client implements the mycord message protocol and supports concurrent messag
 
 ### Command-Line Interface
 Supports the following flags:
+
 `--help`
+
 `--port PORT`
+
 `--ip IP`
+
 `--domain DOMAIN`
+
 `--quiet`
 
 ### Message Handling
@@ -64,9 +69,13 @@ The mycord protocol exchanges fixed-size **1,064 byte messages** consisting of:
 All numeric fields are transmitted in **network byte order**.
 
 ## File Structure 
+
 `client.c` - Mycord client implementation
+
 `server.py` - Teacher written test server
+
 `messages.log` Server-generated message history
+
 `INSTRUCTIONS.md` Project Instructions
 
 ## Compilation 
@@ -86,7 +95,7 @@ Machine 2
 ./client --port <server_port> --ip <machine_1_ip>
 ```
 
-### Classroom server
+### Classroom server:
 ```bash
 ./client --domain mycord.devic.dev
 ```
