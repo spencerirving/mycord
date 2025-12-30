@@ -13,7 +13,7 @@
 #include <stdint.h>
 
 // typedef enum MessageType { ... } message_type_t;
-enum MessageType { 
+typedef enum MessageType { 
 	LOGIN = 0,
 	LOGOUT = 1,
 	MESSAGE_SEND = 2,
@@ -213,7 +213,7 @@ void* receive_messages_thread(void* arg) {
 	settings_t* settings = (settings_t*) arg; // casts the settings from the argument
 	if (settings == NULL) { // checks if arg is null
 	       print_error("Failed to pass settings to worker");
-	       pthread_exit((void*)-1);
+	       pthread_exit((void*)1);
     	}	       
 
 	while (settings->running) { // does work as long as the client is connected to the server
@@ -227,7 +227,7 @@ void* receive_messages_thread(void* arg) {
 				break;
 			}
 			print_error("Failed to read message from server");
-			pthread_exit((void*)-1);
+			pthread_exit((void*)1);
 		}
 		
 		// convert from network to host byte order
@@ -277,7 +277,7 @@ void* receive_messages_thread(void* arg) {
 			printf("%s[SYSTEM] %s%s\n", COLOR_GRAY, message.message, COLOR_RESET); // prints the disconnect message to stdout
 		} else { // invalid inbound message
 			print_error("Invalid inbound message from server"); 
-			pthread_exit((void*)-1);
+			pthread_exit((void*)1);
 		}
 	}
 	return NULL; 
@@ -445,5 +445,5 @@ int main(int argc, char *argv[]) {
 
 	// cleanup and return
 	close(settings.socket_fd); // closes the socket
-	
+	return 0;
 }
