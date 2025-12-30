@@ -23,11 +23,11 @@ The client implements the mycord message protocol and supports concurrent messag
 
 ### Command-Line Interface
 Supports the following flags:
-`  --help`
-`  --port PORT`
-`  --ip IP`
-`  --domain DOMAIN`
-`  --quiet`
+`--help`
+`--port PORT`
+`--ip IP`
+`--domain DOMAIN`
+`--quiet`
 
 ### Message Handling
 - Receives and formats messages with timestamps
