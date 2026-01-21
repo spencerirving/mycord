@@ -4,7 +4,7 @@
 
 This project is a C-based client implementation for the **mycord** chat service. It was completed as **Part 1 of the Final Programming Assignment** for **CMPSC 311: Introduction to Systems Programming** at **The Pennsylvania State University**.
 
-The goal of this project was to build a fully ufnctional network chat client using low-level Linux/Unix system programming concepts, including sockets, threading, signals, and structured network protocols. 
+The goal of this project was to build a fully functional network chat client using low-level Linux/Unix system programming concepts, including sockets, threading, signals, and structured network protocols. 
 
 This repository contains **only Part 1** of the final project, where the instructions can be found in the `INSTRUCTIONS.md` file.
 
